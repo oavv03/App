@@ -51,8 +51,11 @@ export const fetchRemoteVotes = async (): Promise<Vote[] | null> => {
   if (!sheetUrl) return null;
 
   try {
-    // Append timestamp to avoid caching
-    const response = await fetch(`${sheetUrl}?t=${Date.now()}`);
+    // Append timestamp to avoid caching AND use cache: 'no-store'
+    const response = await fetch(`${sheetUrl}?t=${Date.now()}`, {
+      cache: 'no-store'
+    });
+    
     if (!response.ok) throw new Error('Network response was not ok');
     
     const data = await response.json();

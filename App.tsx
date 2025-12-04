@@ -33,25 +33,24 @@ export default function App() {
     setIsCloudConfigured(!!url);
   }, []);
 
-  // Polling Effect: Fetch data every 4 seconds if cloud is configured
+  // Polling Effect: Fetch data every 2 seconds if cloud is configured
   useEffect(() => {
     if (!isCloudConfigured) return;
 
     const fetchData = async () => {
       // Don't show loading spinner on background polls to avoid UI flickering
-      // setIsSyncing(true); 
       const cloudVotes = await fetchRemoteVotes();
-      if (cloudVotes) {
+      // Strict check: if cloudVotes is not null (even if it is empty []), we update state
+      if (cloudVotes !== null) {
         setVotes(cloudVotes);
       }
-      // setIsSyncing(false);
     };
 
     // Initial fetch
     fetchData();
 
-    // Loop (4 seconds for better real-time feel)
-    const intervalId = setInterval(fetchData, 4000);
+    // Loop (2 seconds for better real-time feel)
+    const intervalId = setInterval(fetchData, 2000);
 
     return () => clearInterval(intervalId);
   }, [isCloudConfigured]);
@@ -61,7 +60,7 @@ export default function App() {
     if (activeTab === 'results' && isCloudConfigured) {
       setIsSyncing(true);
       fetchRemoteVotes().then(data => {
-        if (data) setVotes(data);
+        if (data !== null) setVotes(data);
         setIsSyncing(false);
       });
     }
@@ -92,17 +91,16 @@ export default function App() {
         await saveVote(newVote);
         
         // 2. ESPERAR: Google Sheets tarda ~1-2 segundos en indexar la nueva fila.
-        // Si consultamos inmediatamente, obtendremos los datos viejos.
         await new Promise(resolve => setTimeout(resolve, 1500));
 
         // 3. Descargar datos frescos del Sheet para actualizar Resultados
         const cloudVotes = await fetchRemoteVotes();
         
-        if (cloudVotes) {
+        if (cloudVotes !== null) {
           setVotes(cloudVotes);
           showToast('Voto sincronizado con éxito');
         } else {
-          // Fallback por si falla la descarga (ej. timeout), mostramos localmente
+          // Fallback solo si falla la descarga
           setVotes(prev => [...prev, newVote]);
           showToast('Voto enviado (actualizando visualización...)', 'info');
         }
@@ -138,7 +136,7 @@ export default function App() {
     if(sheetUrlInput) {
       setIsSyncing(true);
       fetchRemoteVotes().then(data => {
-        if(data) setVotes(data);
+        if(data !== null) setVotes(data);
         setIsSyncing(false);
       });
     }
@@ -199,7 +197,7 @@ export default function App() {
                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
                    : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
                }`}
-               title={isCloudConfigured ? "Sincronización activa (4s)" : "Configurar Google Sheets"}
+               title={isCloudConfigured ? "Sincronización activa (2s)" : "Configurar Google Sheets"}
              >
                {isCloudConfigured ? <Cloud size={16} /> : <CloudOff size={16} />}
                <span className="hidden sm:inline">{isCloudConfigured ? 'En Línea' : 'Offline'}</span>
@@ -257,6 +255,7 @@ export default function App() {
   const SettingsModal = () => {
     if (!isSettingsOpen) return null;
 
+    // SCRIPT ACTUALIZADO PARA MANEJAR HOJAS VACÍAS
     const scriptCode = `function doPost(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var data = JSON.parse(e.postData.contents);
@@ -266,6 +265,13 @@ export default function App() {
 
 function doGet(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  
+  // CORRECCIÓN IMPORTANTE: Si la hoja está vacía, devuelve array vacío
+  if (sheet.getLastRow() === 0) {
+    return ContentService.createTextOutput("[]")
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   var rows = sheet.getDataRange().getValues();
   var votes = [];
   
@@ -328,10 +334,10 @@ function doGet(e) {
             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
               <h3 className="text-blue-900 font-bold mb-2 flex items-center gap-2">
                 <ExternalLink size={16} />
-                Guía Rápida (Obligatorio para ver en otros móviles)
+                Guía Rápida (¡ACTUALIZAR CÓDIGO!)
               </h3>
               <p className="text-sm text-blue-800 mb-2">
-                Sigue estos pasos EXACTOS para permitir el acceso público:
+                Si tenías problemas al borrar datos, <strong>vuelve a copiar este código</strong> en Apps Script:
               </p>
               <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
                 <li>En tu Google Sheet: <strong>Extensiones</strong> {'>'} <strong>Apps Script</strong>.</li>
@@ -353,8 +359,8 @@ function doGet(e) {
 
               <ol start={3} className="list-decimal list-inside space-y-2 text-sm text-blue-800">
                 <li>Botón azul <strong>Implementar</strong> {'>'} <strong>Nueva implementación</strong>.</li>
-                <li><strong>IMPORTANTE:</strong> En "Quién puede acceder", selecciona <strong>"Cualquier usuario" (Anyone)</strong>. Si no haces esto, los datos no se verán en otros dispositivos.</li>
-                <li>Dale a "Implementar", copia la URL y pégala arriba.</li>
+                <li><strong>IMPORTANTE:</strong> En "Quién puede acceder", selecciona <strong>"Cualquier usuario" (Anyone)</strong>.</li>
+                <li>Dale a "Implementar" (o "Actualizar"), copia la URL y pégala arriba.</li>
               </ol>
             </div>
           </div>
@@ -430,14 +436,14 @@ function doGet(e) {
               <div className="flex items-center gap-3">
                 <h1 className="text-3xl font-bold text-gray-900">Resultados en Vivo</h1>
                 {isCloudConfigured && (
-                  <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full animate-pulse">
-                    En Directo
+                  <span className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${isSyncing ? 'bg-indigo-100 text-indigo-700' : 'bg-green-100 text-green-700'}`}>
+                    {isSyncing ? <><RefreshCw size={10} className="animate-spin"/> Sincronizando</> : '● En Directo'}
                   </span>
                 )}
               </div>
               <p className="text-gray-500">
                 {isCloudConfigured 
-                  ? "Visualizando datos directamente de Google Sheets." 
+                  ? "Visualizando datos directamente de Google Sheets (Dependencia Total)." 
                   : "Viendo datos locales. Conecta la nube para ver datos globales."}
               </p>
             </div>
